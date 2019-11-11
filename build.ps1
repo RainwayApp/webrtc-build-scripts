@@ -15,10 +15,10 @@ function Build-WebRTC {
         [bool] $IsDebug
     )
 
-    $is_debug = If ($IsDebug) { "true" } Else { "false" }
-    $build_name = If ($IsDebug) { "Debug" } Else { "Release" }
+    $is_debug = if ($IsDebug) { "true" } else { "false" }
+    $build_name = if ($IsDebug) { "Debug" } else { "Release" }
     $output = "$windows_builds\$Target\$build_name"
-    $symbol_level = If ($IsDebug) { 2 } Else { 0 }
+    $symbol_level = if ($IsDebug) { 2 } else { 0 }
     $arguments = "is_clang=false use_rtti=true is_debug=$is_debug target_cpu=""""$Target"""" symbol_level=$symbol_level rtc_enable_sctp=true fatal_linker_warnings=false treat_warnings_as_errors=false rtc_include_tests=false"
     $gn = Start-Process "gn" -ArgumentList "gen $output --args=""$arguments""" -PassThru -Wait -NoNewWindow
     if ($gn.ExitCode -ne 0) {
