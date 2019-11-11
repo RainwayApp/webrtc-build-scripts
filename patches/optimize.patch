@@ -1,0 +1,357 @@
+From bc45c3464b248ce3590cf9e03f4ae88d3b987b54 Mon Sep 17 00:00:00 2001
+From: Andrew Sampson <andrew@rainway.io>
+Date: Sat, 9 Nov 2019 17:46:53 -0800
+Subject: [PATCH 1/5] patcy to speedup
+
+---
+ media/sctp/sctp_transport.cc         | 54 ++++++++++++++++++++++++++----------
+ media/sctp/sctp_transport_internal.h |  7 +----
+ 2 files changed, 40 insertions(+), 21 deletions(-)
+
+diff --git a/media/sctp/sctp_transport.cc b/media/sctp/sctp_transport.cc
+index 5b631ffcae..d361eadfc6 100644
+--- a/media/sctp/sctp_transport.cc
++++ b/media/sctp/sctp_transport.cc
+@@ -221,22 +221,26 @@ class SctpTransport::UsrSctpWrapper {
+                         << send_size;
+     }
+ 
+-    // TODO(ldixon): Consider turning this on/off.
+-    // This is not needed right now (we don't do dynamic address changes):
+-    // If SCTP Auto-ASCONF is enabled, the peer is informed automatically
+-    // when a new address is added or removed. This feature is enabled by
+-    // default.
+-    // usrsctp_sysctl_set_sctp_auto_asconf(0);
++	// Do not send ABORTs in response to INITs (1).
++    // Do not send ABORTs for received Out of the Blue packets (2).
++    usrsctp_sysctl_set_sctp_blackhole(2);
+ 
+-    // TODO(ldixon): Consider turning this on/off.
+-    // Add a blackhole sysctl. Setting it to 1 results in no ABORTs
+-    // being sent in response to INITs, setting it to 2 results
+-    // in no ABORTs being sent for received OOTB packets.
+-    // This is similar to the TCP sysctl.
+-    //
+-    // See: http://lakerest.net/pipermail/sctp-coders/2012-January/009438.html
+-    // See: http://svnweb.freebsd.org/base?view=revision&revision=229805
+-    // usrsctp_sysctl_set_sctp_blackhole(2);
++	usrsctp_sysctl_set_sctp_default_cc_module(SCTP_CC_HTCP); //74mbps
++
++    // Disable the Address Reconfiguration extension
++    usrsctp_sysctl_set_sctp_asconf_enable(0);
++
++    // Disable the Authentication extension
++    usrsctp_sysctl_set_sctp_auth_enable(0);
++
++    // Disable the NR-SACK extension (not standardised)
++    usrsctp_sysctl_set_sctp_nrsack_enable(0);
++
++    // Disable the Packet Drop Report extension (not standardised)
++    usrsctp_sysctl_set_sctp_pktdrop_enable(0);
++
++    // Enable the Partial Reliability extension
++    usrsctp_sysctl_set_sctp_pr_enable(1);
+ 
+     // Set the number of default outgoing streams. This is the number we'll
+     // send in the SCTP INIT message.
+@@ -760,6 +764,26 @@ bool SctpTransport::OpenSctpSocket() {
+ bool SctpTransport::ConfigureSctpSocket() {
+   RTC_DCHECK_RUN_ON(network_thread_);
+   RTC_DCHECK(sock_);
++  // Set send and receive buffer size to 2 MiB to allow for adequate throughput
++  // in high-RTT scenarios.
++  int buffer_size = 2024 * 2024
++
++  if (usrsctp_setsockopt(sock_, SOL_SOCKET, SO_RCVBUF,
++                         (const void *)&buffer_size,
++                         sizeof(buffer_size)) < 0) {
++    RTC_LOG_ERRNO(LS_ERROR) << debug_name_ << "->ConfigureSctpSocket(): "
++                            << "Failed to set SCTP receive buffer size.";
++    return false;
++  }
++  buffer_size = 2024 * 2024;
++  if (usrsctp_setsockopt(sock_, SOL_SOCKET, SO_SNDBUF,
++                         (const void *)&buffer_size,
++                         sizeof(buffer_size)) < 0) {
++    RTC_LOG_ERRNO(LS_ERROR) << debug_name_ << "->ConfigureSctpSocket(): "
++                            << "Failed to set SCTP send buffer size.";
++    return false;
++  }
++
+   // Make the socket non-blocking. Connect, close, shutdown etc will not block
+   // the thread waiting for the socket operation to complete.
+   if (usrsctp_set_non_blocking(sock_, 1) < 0) {
+diff --git a/media/sctp/sctp_transport_internal.h b/media/sctp/sctp_transport_internal.h
+index 378453a5cb..2c76c85157 100644
+--- a/media/sctp/sctp_transport_internal.h
++++ b/media/sctp/sctp_transport_internal.h
+@@ -34,15 +34,10 @@ constexpr int kSctpSendBufferSize = 256 * 1024;
+ 
+ // The number of outgoing streams that we'll negotiate. Since stream IDs (SIDs)
+ // are 0-based, the highest usable SID is 1023.
+-//
+ // It's recommended to use the maximum of 65535 in:
+ // https://tools.ietf.org/html/draft-ietf-rtcweb-data-channel-13#section-6.2
+-// However, we use 1024 in order to save memory. usrsctp allocates 104 bytes
+-// for each pair of incoming/outgoing streams (on a 64-bit system), so 65535
+-// streams would waste ~6MB.
+-//
+ // Note: "max" and "min" here are inclusive.
+-constexpr uint16_t kMaxSctpStreams = 1024;
++constexpr uint16_t kMaxSctpStreams = 65535;
+ constexpr uint16_t kMaxSctpSid = kMaxSctpStreams - 1;
+ constexpr uint16_t kMinSctpSid = 0;
+ 
+-- 
+2.16.1.windows.4
+
+
+From 4bf6d6101413c732ce6c3463ad2a0b148e0d0fd5 Mon Sep 17 00:00:00 2001
+From: Andrew Sampson <andrew@rainway.io>
+Date: Sat, 9 Nov 2019 19:55:05 -0800
+Subject: [PATCH 2/5] Optimize SSL
+
+---
+ media/sctp/sctp_transport.cc       |  2 +-
+ rtc_base/openssl_stream_adapter.cc | 13 +++++++++----
+ 2 files changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/media/sctp/sctp_transport.cc b/media/sctp/sctp_transport.cc
+index d361eadfc6..2e8a020016 100644
+--- a/media/sctp/sctp_transport.cc
++++ b/media/sctp/sctp_transport.cc
+@@ -766,7 +766,7 @@ bool SctpTransport::ConfigureSctpSocket() {
+   RTC_DCHECK(sock_);
+   // Set send and receive buffer size to 2 MiB to allow for adequate throughput
+   // in high-RTT scenarios.
+-  int buffer_size = 2024 * 2024
++  int buffer_size = 2024 * 2024;
+ 
+   if (usrsctp_setsockopt(sock_, SOL_SOCKET, SO_RCVBUF,
+                          (const void *)&buffer_size,
+diff --git a/rtc_base/openssl_stream_adapter.cc b/rtc_base/openssl_stream_adapter.cc
+index db236d9b2f..82c430bb0e 100644
+--- a/rtc_base/openssl_stream_adapter.cc
++++ b/rtc_base/openssl_stream_adapter.cc
+@@ -67,10 +67,9 @@ struct SslCipherMapEntry {
+ 
+ // This isn't elegant, but it's better than an external reference
+ constexpr SrtpCipherMapEntry kSrtpCipherMap[] = {
+-    {"SRTP_AES128_CM_SHA1_80", SRTP_AES128_CM_SHA1_80},
+-    {"SRTP_AES128_CM_SHA1_32", SRTP_AES128_CM_SHA1_32},
++	{"SRTP_AEAD_AES_256_GCM", SRTP_AEAD_AES_256_GCM},
+     {"SRTP_AEAD_AES_128_GCM", SRTP_AEAD_AES_128_GCM},
+-    {"SRTP_AEAD_AES_256_GCM", SRTP_AEAD_AES_256_GCM}};
++    {"SRTP_AES128_CM_SHA1_80", SRTP_AES128_CM_SHA1_80}};
+ 
+ #ifndef OPENSSL_IS_BORINGSSL
+ // The "SSL_CIPHER_standard_name" function is only available in OpenSSL when
+@@ -1007,7 +1006,13 @@ SSL_CTX* OpenSSLStreamAdapter::SetupSSLContext() {
+   // with SHA256 or SHA384 as the handshake hash.
+   // This matches the list of SSLClientSocketOpenSSL in Chromium.
+   SSL_CTX_set_cipher_list(
+-      ctx, "DEFAULT:!NULL:!aNULL:!SHA256:!SHA384:!aECDH:!AESGCM+AES256:!aPSK");
++      ctx, "ECDHE-ECDSA-CHACHA20-POLY1305:"
++           "ECDHE-ECDSA-AES128-GCM-SHA256:"
++           "ECDHE-ECDSA-AES256-GCM-SHA384:"
++           "ECDHE-ECDSA-AES128-SHA256:"
++           "ECDHE-ECDSA-AES128-SHA:"
++           "ECDHE-ECDSA-AES256-SHA384:"
++           "ECDHE-ECDSA-AES256-SHA");
+ 
+   if (!srtp_ciphers_.empty()) {
+     if (SSL_CTX_set_tlsext_use_srtp(ctx, srtp_ciphers_.c_str())) {
+-- 
+2.16.1.windows.4
+
+
+From 0754a23c81f00186ea3dfd30b35d7ac93b0784da Mon Sep 17 00:00:00 2001
+From: Andrew Sampson <andrew@rainway.io>
+Date: Sat, 9 Nov 2019 23:59:05 -0800
+Subject: [PATCH 3/5] adjust buffer
+
+---
+ media/sctp/sctp_transport_internal.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/media/sctp/sctp_transport_internal.h b/media/sctp/sctp_transport_internal.h
+index 2c76c85157..63d860f3c6 100644
+--- a/media/sctp/sctp_transport_internal.h
++++ b/media/sctp/sctp_transport_internal.h
+@@ -30,7 +30,7 @@ namespace cricket {
+ 
+ // Constants that are important to API users
+ // The size of the SCTP association send buffer. 256kB, the usrsctp default.
+-constexpr int kSctpSendBufferSize = 256 * 1024;
++constexpr int kSctpSendBufferSize = 2048 * 2048;
+ 
+ // The number of outgoing streams that we'll negotiate. Since stream IDs (SIDs)
+ // are 0-based, the highest usable SID is 1023.
+-- 
+2.16.1.windows.4
+
+
+From a14d6c178371b39bcc2887f1207edc99a9705cd6 Mon Sep 17 00:00:00 2001
+From: Andrew Sampson <andrew@rainway.io>
+Date: Sun, 10 Nov 2019 00:06:05 -0800
+Subject: [PATCH 4/5] adjust buffer to 2048
+
+---
+ media/sctp/sctp_transport.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/media/sctp/sctp_transport.cc b/media/sctp/sctp_transport.cc
+index 2e8a020016..43824fd685 100644
+--- a/media/sctp/sctp_transport.cc
++++ b/media/sctp/sctp_transport.cc
+@@ -766,7 +766,7 @@ bool SctpTransport::ConfigureSctpSocket() {
+   RTC_DCHECK(sock_);
+   // Set send and receive buffer size to 2 MiB to allow for adequate throughput
+   // in high-RTT scenarios.
+-  int buffer_size = 2024 * 2024;
++  int buffer_size = 2048 * 2048;
+ 
+   if (usrsctp_setsockopt(sock_, SOL_SOCKET, SO_RCVBUF,
+                          (const void *)&buffer_size,
+@@ -775,7 +775,7 @@ bool SctpTransport::ConfigureSctpSocket() {
+                             << "Failed to set SCTP receive buffer size.";
+     return false;
+   }
+-  buffer_size = 2024 * 2024;
++  buffer_size = 2048 * 2048;
+   if (usrsctp_setsockopt(sock_, SOL_SOCKET, SO_SNDBUF,
+                          (const void *)&buffer_size,
+                          sizeof(buffer_size)) < 0) {
+-- 
+2.16.1.windows.4
+
+
+From bfc0879e579a3c42997fed1f6aa1060bbbfb0b01 Mon Sep 17 00:00:00 2001
+From: Andrew Sampson <andrew@rainway.io>
+Date: Sun, 10 Nov 2019 00:55:08 -0800
+Subject: [PATCH 5/5] fix broken cli
+
+---
+ media/sctp/sctp_transport.cc               |  4 +-
+ modules/rtp_rtcp/source/rtp_video_header.h | 77 ++++++++++++++++--------------
+ 2 files changed, 44 insertions(+), 37 deletions(-)
+
+diff --git a/media/sctp/sctp_transport.cc b/media/sctp/sctp_transport.cc
+index 43824fd685..0495e38179 100644
+--- a/media/sctp/sctp_transport.cc
++++ b/media/sctp/sctp_transport.cc
+@@ -225,7 +225,7 @@ class SctpTransport::UsrSctpWrapper {
+     // Do not send ABORTs for received Out of the Blue packets (2).
+     usrsctp_sysctl_set_sctp_blackhole(2);
+ 
+-	usrsctp_sysctl_set_sctp_default_cc_module(SCTP_CC_HTCP); //74mbps
++	usrsctp_sysctl_set_sctp_default_cc_module(SCTP_CC_HTCP); //74dbps
+ 
+     // Disable the Address Reconfiguration extension
+     usrsctp_sysctl_set_sctp_asconf_enable(0);
+@@ -242,6 +242,8 @@ class SctpTransport::UsrSctpWrapper {
+     // Enable the Partial Reliability extension
+     usrsctp_sysctl_set_sctp_pr_enable(1);
+ 
++	usrsctp_sysctl_set_sctp_max_chunks_on_queue(2048);
++
+     // Set the number of default outgoing streams. This is the number we'll
+     // send in the SCTP INIT message.
+     usrsctp_sysctl_set_sctp_nr_outgoing_streams_default(kMaxSctpStreams);
+diff --git a/modules/rtp_rtcp/source/rtp_video_header.h b/modules/rtp_rtcp/source/rtp_video_header.h
+index 78f8c4b2d1..5227d84eac 100644
+--- a/modules/rtp_rtcp/source/rtp_video_header.h
++++ b/modules/rtp_rtcp/source/rtp_video_header.h
+@@ -28,48 +28,53 @@
+ #include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
+ 
+ namespace webrtc {
+-using RTPVideoTypeHeader = absl::variant<absl::monostate,
+-                                         RTPVideoHeaderVP8,
+-                                         RTPVideoHeaderVP9,
+-                                         RTPVideoHeaderH264>;
++	using RTPVideoTypeHeader = absl::variant<absl::monostate,
++		RTPVideoHeaderVP8,
++		RTPVideoHeaderVP9,
++		RTPVideoHeaderH264>;
+ 
+-struct RTPVideoHeader {
+-  struct GenericDescriptorInfo {
+-    GenericDescriptorInfo();
+-    GenericDescriptorInfo(const GenericDescriptorInfo& other);
+-    ~GenericDescriptorInfo();
++	struct RTPVideoHeader {
++		struct GenericDescriptorInfo {
++			GenericDescriptorInfo();
++			GenericDescriptorInfo(const GenericDescriptorInfo& other);
++			~GenericDescriptorInfo();
+ 
+-    int64_t frame_id = 0;
+-    int spatial_index = 0;
+-    int temporal_index = 0;
+-    absl::InlinedVector<int64_t, 5> dependencies;
+-    absl::InlinedVector<int, 5> higher_spatial_layers;
+-    bool discardable = false;
+-  };
++			int64_t frame_id = 0;
++			int spatial_index = 0;
++			int temporal_index = 0;
++			absl::InlinedVector<int64_t, 5> dependencies;
++			absl::InlinedVector<int, 5> higher_spatial_layers;
++			bool discardable = false;
++		};
+ 
+-  RTPVideoHeader();
+-  RTPVideoHeader(const RTPVideoHeader& other);
++		RTPVideoHeader();
++		RTPVideoHeader(const RTPVideoHeader& other);
+ 
+-  ~RTPVideoHeader();
++		~RTPVideoHeader();
+ 
+-  absl::optional<GenericDescriptorInfo> generic;
++		#ifdef __cplusplus_cli
++			#define generic __identifier(generic)
++		#endif
++		absl::optional<GenericDescriptorInfo> generic;
++		#ifdef __cplusplus_cli
++			#undef generic
++		#endif
++		VideoFrameType frame_type = VideoFrameType::kEmptyFrame;
++		uint16_t width = 0;
++		uint16_t height = 0;
++		VideoRotation rotation = VideoRotation::kVideoRotation_0;
++		VideoContentType content_type = VideoContentType::UNSPECIFIED;
++		bool is_first_packet_in_frame = false;
++		bool is_last_packet_in_frame = false;
++		uint8_t simulcastIdx = 0;
++		VideoCodecType codec = VideoCodecType::kVideoCodecGeneric;
+ 
+-  VideoFrameType frame_type = VideoFrameType::kEmptyFrame;
+-  uint16_t width = 0;
+-  uint16_t height = 0;
+-  VideoRotation rotation = VideoRotation::kVideoRotation_0;
+-  VideoContentType content_type = VideoContentType::UNSPECIFIED;
+-  bool is_first_packet_in_frame = false;
+-  bool is_last_packet_in_frame = false;
+-  uint8_t simulcastIdx = 0;
+-  VideoCodecType codec = VideoCodecType::kVideoCodecGeneric;
+-
+-  PlayoutDelay playout_delay = {-1, -1};
+-  VideoSendTiming video_timing;
+-  FrameMarking frame_marking = {false, false, false, false, false, 0xFF, 0, 0};
+-  absl::optional<ColorSpace> color_space;
+-  RTPVideoTypeHeader video_type_header;
+-};
++		PlayoutDelay playout_delay = { -1, -1 };
++		VideoSendTiming video_timing;
++		FrameMarking frame_marking = { false, false, false, false, false, 0xFF, 0, 0 };
++		absl::optional<ColorSpace> color_space;
++		RTPVideoTypeHeader video_type_header;
++	};
+ 
+ }  // namespace webrtc
+ 
+-- 
+2.16.1.windows.4
+
