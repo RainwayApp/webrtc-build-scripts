@@ -6,6 +6,10 @@ jobs:
   build:
 
     runs-on: windows-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        python-version: [2.7]
     
     steps:
     - uses: actions/checkout@v1
