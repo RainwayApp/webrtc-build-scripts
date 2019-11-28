@@ -15,7 +15,7 @@ jobs:
     - uses: actions/checkout@v1
     - name: Build WebRTC
       run: | 
-       [Environment]::SetEnvironmentVariable("PYTHON_HOME", "C:\hostedtoolcache\windows\Python\2.7.16\x64" , "User")
+       [Environment]::SetEnvironmentVariable("PYTHON_HOME", "C:\hostedtoolcache\windows\Python\2.7.16\x64" , "Machine")
        .\build.ps1
       shell: powershell
     - name: Create artifacts directory
