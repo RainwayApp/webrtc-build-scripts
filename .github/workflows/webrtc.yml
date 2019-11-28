@@ -13,11 +13,10 @@ jobs:
         python-version: '2.7' # Version range or exact version of a Python version to use, using semvers version range syntax.
         architecture: 'x64' # optional x64 or x86. Defaults to x64 if not specified
     - uses: actions/checkout@v1
-    - name: Build WebRTC
+    - name: Set Path
       run: | 
        [Environment]::SetEnvironmentVariable("PYTHON_HOME", "C:\hostedtoolcache\windows\Python\2.7.16\x64" , [System.EnvironmentVariableTarget]::Machine)
        [Environment]::SetEnvironmentVariable("PYTHON_HOME", "C:\hostedtoolcache\windows\Python\2.7.16\x64" , [System.EnvironmentVariableTarget]::User)
-       .\build.ps1
       shell: powershell
     - name: Build WebRTC
       run: .\build.ps1
