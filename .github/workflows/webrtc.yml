@@ -1,0 +1,28 @@
+name: CI
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v1
+    - name: Build WebRTC
+      run: .\build.ps1
+      shell: powershell
+    - name: Create artifacts directory
+      run: MKDIR webrtc_artifacts
+      shell: cmd
+    - name: Copy Libs
+      run: Xcopy /E /I .\libs .\webrtc_artifacts\libs\
+      shell: cmd
+    - name: Copy Includes
+      run: Xcopy /E /I .\includes .\webrtc_artifacts\includes\
+      shell: cmd
+    - uses: actions/upload-artifact@master
+      with:
+        name: artifacts
+        path: webrtc_artifacts/
+      
