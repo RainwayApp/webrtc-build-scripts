@@ -15,8 +15,9 @@ jobs:
         architecture: 'x64' # optional x64 or x86. Defaults to x64 if not specified
     - name: Build WebRTC
       run: | 
-       $Env:Path = ((($env:Path -split ";") | Where-Object { $_ -notlike "*Python27*"}) -join ";")
-        .\build.ps1
+       $path = ((($env:Path -split ";") | Where-Object { $_ -notlike "*Python27*"}) -join ";")
+       [Environment]::SetEnvironmentVariable("Path", $path , "Machine")
+       .\build.ps1
       shell: powershell
     - name: Create artifacts directory
       run: MKDIR webrtc_artifacts
