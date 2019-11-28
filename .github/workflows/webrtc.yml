@@ -14,7 +14,9 @@ jobs:
         python-version: '2.7' # Version range or exact version of a Python version to use, using semvers version range syntax.
         architecture: 'x64' # optional x64 or x86. Defaults to x64 if not specified
     - name: Build WebRTC
-      run: .\build.ps1
+      run: | 
+       $Env:Path = ((($env:Path -split ";") | Where-Object { $_ -notlike "*Python27*"}) -join ";")
+        .\build.ps1
       shell: powershell
     - name: Create artifacts directory
       run: MKDIR webrtc_artifacts
