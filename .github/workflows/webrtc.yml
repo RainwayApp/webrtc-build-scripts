@@ -8,13 +8,14 @@ jobs:
     runs-on: windows-latest
     
     steps:
+    - uses: actions/setup-python@v1
+      with:
+        python-version: '2.7' # Version range or exact version of a Python version to use, using semvers version range syntax.
+        architecture: 'x64' # optional x64 or x86. Defaults to x64 if not specified
     - uses: actions/checkout@v1
     - name: Build WebRTC
       run: | 
-       $machine_path = ((([System.Environment]::GetEnvironmentVariable("PATH", "Machine") -split ";") | Where-Object { $_ -notlike "*Python*"}) -join ";")  + ";C:\hostedtoolcache\windows\Python\2.7.16\x64;C:\Users\runneradmin\AppData\Roaming\Python\Python27\Scripts;" 
-       [Environment]::SetEnvironmentVariable("Path", $machine_path , "Machine")
-       $user_path = ((($env:Path -split ";") | Where-Object { $_ -notlike "*Python*"}) -join ";")  + ";C:\hostedtoolcache\windows\Python\2.7.16\x64;C:\Users\runneradmin\AppData\Roaming\Python\Python27\Scripts;" 
-       [Environment]::SetEnvironmentVariable("Path", $user_path , "User")
+       [Environment]::SetEnvironmentVariable("PYTHON_HOME", "C:\hostedtoolcache\windows\Python\2.7.16\x64" , "User")
        .\build.ps1
       shell: powershell
     - name: Create artifacts directory
