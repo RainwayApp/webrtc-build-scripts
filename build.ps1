@@ -6,6 +6,19 @@ function Depot-Tools-Installed {
     return $False
 }
 
+function Apply-Patch {
+    Param
+    (
+        [Parameter(Mandatory = $true, Position = 0)]
+        [string] $Name
+    )
+    $diff = Start-Process "git" -ArgumentList "apply $Name" -PassThru -Wait -NoNewWindow
+    if ($diff.ExitCode -ne 0) {
+        throw "Failed to apply diff $Name"
+    }
+    Write-Output "Applied $Name"
+}
+
 function Build-WebRTC {
     Param
     (
@@ -15,10 +28,10 @@ function Build-WebRTC {
         [bool] $IsDebug
     )
 
-    $is_debug = if ($IsDebug) { "true" } else { "false" }
-    $build_name = if ($IsDebug) { "Debug" } else { "Release" }
+    $is_debug = If ($IsDebug) { "true" } Else { "false" }
+    $build_name = If ($IsDebug) { "Debug" } Else { "Release" }
     $output = "$windows_builds\$Target\$build_name"
-    $symbol_level = if ($IsDebug) { 2 } else { 0 }
+    $symbol_level = If ($IsDebug) { 2 } Else { 0 }
     $arguments = "is_clang=false use_rtti=true is_debug=$is_debug target_cpu=""""$Target"""" symbol_level=$symbol_level rtc_enable_sctp=true fatal_linker_warnings=false treat_warnings_as_errors=false rtc_include_tests=false"
     $gn = Start-Process "gn" -ArgumentList "gen $output --args=""$arguments""" -PassThru -Wait -NoNewWindow
     if ($gn.ExitCode -ne 0) {
@@ -116,17 +129,13 @@ if ($gclient.ExitCode -ne 0) {
     throw "Failed to sync WebRTC code. $($gclient.ExitCode)"
 }
 
-Write-Output "Applying patches..."
-
-Get-ChildItem "$PSScriptRoot\patches" -Filter *.patch | 
-Foreach-Object {
-    $name = $_.FullName
-    $diff = Start-Process "git" -ArgumentList "apply $name" -PassThru -Wait -NoNewWindow
-    if ($diff.ExitCode -ne 0) {
-        throw "Failed to apply diff $name"
-    }
-    Write-Output "Applied $name"
-}
+Write-Output "Applying patches to WebRTC..."
+Apply-Patch -Name "$PSScriptRoot\patches\optimize.patch"
+Write-Output "Applying patches to usrsctp..."
+Set-Location -Path "$checkout_path\src\third_party\usrsctp\usrsctplib"
+Apply-Patch -Name "$PSScriptRoot\patches\usrsctp.patch"
+Write-Output "Done patching."
+Set-Location -Path "$checkout_path\src"
 
 Write-Output "Replacing BUILD.gn"
 Copy-Item "$PSScriptRoot\configs\BUILD.gn" -Destination "$(Get-Location)\build\config\win\BUILD.gn" -force
@@ -158,13 +167,3 @@ Copy-Includes
 
 
 Write-Output "WebRTC Built!"
-
-
-
-
-
-
-
-
-
-
