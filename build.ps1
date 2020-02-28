@@ -3,6 +3,11 @@ $checkout_path = "$(Get-Location)\webrtc"       # Checkout path
 $windows_builds = "$PSScriptRoot\win_builds"    # Build path
 
 $do_checkout = $true # Checks Depot Tools, checks out webrtc repository; skip if you have this part ready and you are debugging
+$do_patch = $true # Patch webrtc checkout, or otheriwse it is assumed that you have a changes in progress that you are debugging
+
+if(($do_checkout -eq $true) -and ($do_patch -eq $false)) {
+    throw "You cannot skip patching if you are checking out, it is expected that patches are a part of the build in any case.";
+}
 
 # TODO: Rename cmdlets using approved verb names, see https://docs.microsoft.com/en-us/powershell/scripting/developer/cmdlet/approved-verbs-for-windows-powershell-commands?view=powershell-7
 
@@ -134,19 +139,25 @@ if ($python_lastchange.ExitCode -ne 0) {
     throw "Failed to generate lastchange"
 }
 
-$gclient = Start-Process "gclient" -ArgumentList "sync" -PassThru -Wait -NoNewWindow
-if ($gclient.ExitCode -ne 0) {
-    throw "Failed to sync WebRTC code. $($gclient.ExitCode)"
+if($do_patch) {
+    $gclient = Start-Process "gclient" -ArgumentList "sync" -PassThru -Wait -NoNewWindow
+    if ($gclient.ExitCode -ne 0) {
+        throw "Failed to sync WebRTC code. $($gclient.ExitCode)"
+    }
+    Write-Output "Applying webrtc patches..."
+    Set-Location -Path "$checkout_path\src"
+    Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src\optimize.patch"
+    Write-Output "Applying webrtc-src-build patches..."
+    Set-Location -Path "$checkout_path\src\build"
+    Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src-build\0001-Spitfire-C-CLI-build-customization.patch"
+    Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src-build\0002-Do-not-use-custom-in-tree-libc-for-Windows-clang-bui.patch"
+    Write-Output "Done patching."
+} else {
+    $gclient = Start-Process "gclient" -ArgumentList "runhooks" -PassThru -Wait -NoNewWindow
+    if ($gclient.ExitCode -ne 0) {
+        throw "Failed to run gclient runhooks. $($gclient.ExitCode)"
+    }
 }
-
-Write-Output "Applying webrtc patches..."
-Set-Location -Path "$checkout_path\src"
-Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src\optimize.patch"
-Write-Output "Applying webrtc-src-build patches..."
-Set-Location -Path "$checkout_path\src\build"
-Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src-build\0001-Spitfire-C-CLI-build-customization.patch"
-Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src-build\0002-Do-not-use-custom-in-tree-libc-for-Windows-clang-bui.patch"
-Write-Output "Done patching."
 
 Set-Location -Path "$checkout_path\src"
 
