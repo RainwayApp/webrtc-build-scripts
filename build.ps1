@@ -1,4 +1,4 @@
-$webrtc_head = "m79"                            # WebRTC branch
+$webrtc_head = "3987"                            # WebRTC branch
 $checkout_path = "$(Get-Location)\webrtc"       # Checkout path
 $windows_builds = "$PSScriptRoot\win_builds"    # Build path
 
@@ -147,6 +147,7 @@ if($do_patch) {
     Write-Output "Applying webrtc patches..."
     Set-Location -Path "$checkout_path\src"
     Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src\optimize.patch"
+	Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src\usrsctp.patch"
     Write-Output "Applying webrtc-src-build patches..."
     Set-Location -Path "$checkout_path\src\build"
     Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src-build\0001-Spitfire-C-CLI-build-customization.patch"
