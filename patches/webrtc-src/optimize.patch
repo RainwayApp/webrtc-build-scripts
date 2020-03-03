@@ -226,132 +226,32 @@ index 2e8a020016..43824fd685 100644
 2.16.1.windows.4
 
 
-From bfc0879e579a3c42997fed1f6aa1060bbbfb0b01 Mon Sep 17 00:00:00 2001
-From: Andrew Sampson <andrew@rainway.io>
-Date: Sun, 10 Nov 2019 00:55:08 -0800
-Subject: [PATCH 5/5] fix broken cli
+From b34d877e0d1439080ec4709424d8a908d2d3a238 Mon Sep 17 00:00:00 2001
+From: Roman Ryltsov <roman@alax.info>
+Date: Fri, 28 Feb 2020 12:56:00 +0200
+Subject: [PATCH] Fixed use of "generic" identifier as a variable name in
+ C++/CLI build
 
 ---
- media/sctp/sctp_transport.cc               |  4 +-
- modules/rtp_rtcp/source/rtp_video_header.h | 77 ++++++++++++++++--------------
- 2 files changed, 44 insertions(+), 37 deletions(-)
+ modules/rtp_rtcp/source/rtp_video_header.h | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
 
-diff --git a/media/sctp/sctp_transport.cc b/media/sctp/sctp_transport.cc
-index 43824fd685..0495e38179 100644
---- a/media/sctp/sctp_transport.cc
-+++ b/media/sctp/sctp_transport.cc
-@@ -225,7 +225,7 @@ class SctpTransport::UsrSctpWrapper {
-     // Do not send ABORTs for received Out of the Blue packets (2).
-     usrsctp_sysctl_set_sctp_blackhole(2);
- 
--	usrsctp_sysctl_set_sctp_default_cc_module(SCTP_CC_HTCP); //74mbps
-+	usrsctp_sysctl_set_sctp_default_cc_module(SCTP_CC_HTCP); //74dbps
- 
-     // Disable the Address Reconfiguration extension
-     usrsctp_sysctl_set_sctp_asconf_enable(0);
-@@ -242,6 +242,8 @@ class SctpTransport::UsrSctpWrapper {
-     // Enable the Partial Reliability extension
-     usrsctp_sysctl_set_sctp_pr_enable(1);
- 
-+	usrsctp_sysctl_set_sctp_max_chunks_on_queue(2048);
-+
-     // Set the number of default outgoing streams. This is the number we'll
-     // send in the SCTP INIT message.
-     usrsctp_sysctl_set_sctp_nr_outgoing_streams_default(kMaxSctpStreams);
 diff --git a/modules/rtp_rtcp/source/rtp_video_header.h b/modules/rtp_rtcp/source/rtp_video_header.h
-index 78f8c4b2d1..5227d84eac 100644
+index 78f8c4b2d1..e604e3800a 100644
 --- a/modules/rtp_rtcp/source/rtp_video_header.h
 +++ b/modules/rtp_rtcp/source/rtp_video_header.h
-@@ -28,48 +28,53 @@
- #include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
+@@ -52,7 +52,11 @@ struct RTPVideoHeader {
  
- namespace webrtc {
--using RTPVideoTypeHeader = absl::variant<absl::monostate,
--                                         RTPVideoHeaderVP8,
--                                         RTPVideoHeaderVP9,
--                                         RTPVideoHeaderH264>;
-+	using RTPVideoTypeHeader = absl::variant<absl::monostate,
-+		RTPVideoHeaderVP8,
-+		RTPVideoHeaderVP9,
-+		RTPVideoHeaderH264>;
- 
--struct RTPVideoHeader {
--  struct GenericDescriptorInfo {
--    GenericDescriptorInfo();
--    GenericDescriptorInfo(const GenericDescriptorInfo& other);
--    ~GenericDescriptorInfo();
-+	struct RTPVideoHeader {
-+		struct GenericDescriptorInfo {
-+			GenericDescriptorInfo();
-+			GenericDescriptorInfo(const GenericDescriptorInfo& other);
-+			~GenericDescriptorInfo();
- 
--    int64_t frame_id = 0;
--    int spatial_index = 0;
--    int temporal_index = 0;
--    absl::InlinedVector<int64_t, 5> dependencies;
--    absl::InlinedVector<int, 5> higher_spatial_layers;
--    bool discardable = false;
--  };
-+			int64_t frame_id = 0;
-+			int spatial_index = 0;
-+			int temporal_index = 0;
-+			absl::InlinedVector<int64_t, 5> dependencies;
-+			absl::InlinedVector<int, 5> higher_spatial_layers;
-+			bool discardable = false;
-+		};
- 
--  RTPVideoHeader();
--  RTPVideoHeader(const RTPVideoHeader& other);
-+		RTPVideoHeader();
-+		RTPVideoHeader(const RTPVideoHeader& other);
- 
--  ~RTPVideoHeader();
-+		~RTPVideoHeader();
+   ~RTPVideoHeader();
  
 -  absl::optional<GenericDescriptorInfo> generic;
-+		#ifdef __cplusplus_cli
-+			#define generic __identifier(generic)
-+		#endif
-+		absl::optional<GenericDescriptorInfo> generic;
-+		#ifdef __cplusplus_cli
-+			#undef generic
-+		#endif
-+		VideoFrameType frame_type = VideoFrameType::kEmptyFrame;
-+		uint16_t width = 0;
-+		uint16_t height = 0;
-+		VideoRotation rotation = VideoRotation::kVideoRotation_0;
-+		VideoContentType content_type = VideoContentType::UNSPECIFIED;
-+		bool is_first_packet_in_frame = false;
-+		bool is_last_packet_in_frame = false;
-+		uint8_t simulcastIdx = 0;
-+		VideoCodecType codec = VideoCodecType::kVideoCodecGeneric;
++  #ifdef __cplusplus_cli
++    absl::optional<GenericDescriptorInfo> __identifier(generic)
++  #else
++    absl::optional<GenericDescriptorInfo> generic;
++  #endif
  
--  VideoFrameType frame_type = VideoFrameType::kEmptyFrame;
--  uint16_t width = 0;
--  uint16_t height = 0;
--  VideoRotation rotation = VideoRotation::kVideoRotation_0;
--  VideoContentType content_type = VideoContentType::UNSPECIFIED;
--  bool is_first_packet_in_frame = false;
--  bool is_last_packet_in_frame = false;
--  uint8_t simulcastIdx = 0;
--  VideoCodecType codec = VideoCodecType::kVideoCodecGeneric;
--
--  PlayoutDelay playout_delay = {-1, -1};
--  VideoSendTiming video_timing;
--  FrameMarking frame_marking = {false, false, false, false, false, 0xFF, 0, 0};
--  absl::optional<ColorSpace> color_space;
--  RTPVideoTypeHeader video_type_header;
--};
-+		PlayoutDelay playout_delay = { -1, -1 };
-+		VideoSendTiming video_timing;
-+		FrameMarking frame_marking = { false, false, false, false, false, 0xFF, 0, 0 };
-+		absl::optional<ColorSpace> color_space;
-+		RTPVideoTypeHeader video_type_header;
-+	};
- 
- }  // namespace webrtc
- 
+   VideoFrameType frame_type = VideoFrameType::kEmptyFrame;
+   uint16_t width = 0;
 -- 
-2.16.1.windows.4
-
+2.17.1.windows.2
