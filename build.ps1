@@ -1,4 +1,4 @@
-$webrtc_head = "3987"                            # WebRTC branch
+$webrtc_head = "4103"                            # WebRTC branch
 $checkout_path = "$(Get-Location)\webrtc"       # Checkout path
 $windows_builds = "$PSScriptRoot\win_builds"    # Build path
 
@@ -144,14 +144,24 @@ if($do_patch) {
     if ($gclient.ExitCode -ne 0) {
         throw "Failed to sync WebRTC code. $($gclient.ExitCode)"
     }
+	Write-Output "Applying usrsctplib patches..."
+    Set-Location -Path "$checkout_path\src\third_party\usrsctp\usrsctplib"
+	$git = Start-Process "git" -ArgumentList "checkout 0cb61bc48f7fda14aea12d34dcd3ae3ac136e076" -PassThru -Wait -NoNewWindow
+    if ($git.ExitCode -ne 0) {
+        throw "Failed to sync usrsctplib code. $($git.ExitCode)"
+    }
     Write-Output "Applying webrtc patches..."
     Set-Location -Path "$checkout_path\src"
-    Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src\optimize.patch"
-	Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src\usrsctp.patch"
+	foreach ($textfile in Get-ChildItem "$PSScriptRoot\patches\webrtc-src\rtc" -Filter *.patch) {
+		$filePath = $textfile.fullname
+		Apply-Patch -Name "$filePath"    
+	}
     Write-Output "Applying webrtc-src-build patches..."
     Set-Location -Path "$checkout_path\src\build"
-    Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src-build\0001-Spitfire-C-CLI-build-customization.patch"
-    Apply-Patch -Name "$PSScriptRoot\patches\webrtc-src-build\0002-Do-not-use-custom-in-tree-libc-for-Windows-clang-bui.patch"
+	foreach ($textfile in Get-ChildItem "$PSScriptRoot\patches\webrtc-src-build" -Filter *.patch) {
+		$filePath = $textfile.fullname
+		Apply-Patch -Name "$filePath"    
+	}
     Write-Output "Done patching."
 } else {
     $gclient = Start-Process "gclient" -ArgumentList "runhooks" -PassThru -Wait -NoNewWindow

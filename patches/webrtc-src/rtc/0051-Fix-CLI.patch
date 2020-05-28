@@ -1,0 +1,17 @@
+diff --git a/modules/rtp_rtcp/source/rtp_video_header.h b/modules/rtp_rtcp/source/rtp_video_header.h
+index 714d1eb08ccb44deed27770ae17b0465cc7c5980..2315a167ee094069ef05c008b08a06a3d320b7fc 100644
+--- a/modules/rtp_rtcp/source/rtp_video_header.h
++++ b/modules/rtp_rtcp/source/rtp_video_header.h
+@@ -61,7 +61,11 @@ struct RTPVideoHeader {
+ 
+   ~RTPVideoHeader();
+ 
+-  absl::optional<GenericDescriptorInfo> generic;
++  #ifdef __cplusplus_cli
++    absl::optional<GenericDescriptorInfo> __identifier(generic)
++  #else
++    absl::optional<GenericDescriptorInfo> generic;
++  #endif
+ 
+   VideoFrameType frame_type = VideoFrameType::kEmptyFrame;
+   uint16_t width = 0;
