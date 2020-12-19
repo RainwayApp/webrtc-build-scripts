@@ -1,8 +1,8 @@
 diff --git a/media/sctp/sctp_transport.cc b/media/sctp/sctp_transport.cc
-index 40061a604870b0e7033449d114e3a9b8fa32d028..89ef67d9d3ab7d7a17c07d2ceef88fbaad798735 100644
+index 1a6dc334e1..b222de0a92 100644
 --- a/media/sctp/sctp_transport.cc
 +++ b/media/sctp/sctp_transport.cc
-@@ -788,6 +788,29 @@ bool SctpTransport::OpenSctpSocket() {
+@@ -854,6 +875,28 @@ bool SctpTransport::OpenSctpSocket() {
  bool SctpTransport::ConfigureSctpSocket() {
    RTC_DCHECK_RUN_ON(network_thread_);
    RTC_DCHECK(sock_);
@@ -12,21 +12,20 @@ index 40061a604870b0e7033449d114e3a9b8fa32d028..89ef67d9d3ab7d7a17c07d2ceef88fba
 +  int buffer_size = 1024 * 1024;
 +  
 +  if (usrsctp_setsockopt(sock_, SOL_SOCKET, SO_RCVBUF,
-+						(const void *)&buffer_size,
-+						sizeof(buffer_size)) < 0) {
-+	 RTC_LOG_ERRNO(LS_ERROR) << debug_name_ << "->ConfigureSctpSocket(): "
-+							 << "Failed to set SCTP receive buffer size.";
-+	 return false;
-+	 
-+   }
++                        (const void *)&buffer_size,
++                        sizeof(buffer_size)) < 0) {
++     RTC_LOG_ERRNO(LS_ERROR) << debug_name_ << "->ConfigureSctpSocket(): "
++                             << "Failed to set SCTP receive buffer size.";
++     return false;
++  }
 +   
-+   buffer_size = 1024 * 1024;
++  buffer_size = 1024 * 1024;
 +  if (usrsctp_setsockopt(sock_, SOL_SOCKET, SO_SNDBUF,
-+						 (const void *)&buffer_size,
-+						 sizeof(buffer_size)) < 0) {
-+	RTC_LOG_ERRNO(LS_ERROR) << debug_name_ << "->ConfigureSctpSocket(): "
++                        (const void *)&buffer_size,
++                        sizeof(buffer_size)) < 0) {
++    RTC_LOG_ERRNO(LS_ERROR) << debug_name_ << "->ConfigureSctpSocket(): "
 +                            << "Failed to set SCTP send buffer size."; 
-+	return false;
++    return false;
 +  }
 +  
    // Make the socket non-blocking. Connect, close, shutdown etc will not block
