@@ -8,7 +8,7 @@ index 714d1eb08ccb44deed27770ae17b0465cc7c5980..2315a167ee094069ef05c008b08a06a3
  
 -  absl::optional<GenericDescriptorInfo> generic;
 +  #ifdef __cplusplus_cli
-+    absl::optional<GenericDescriptorInfo> __identifier(generic)
++    absl::optional<GenericDescriptorInfo> __identifier(generic);
 +  #else
 +    absl::optional<GenericDescriptorInfo> generic;
 +  #endif
